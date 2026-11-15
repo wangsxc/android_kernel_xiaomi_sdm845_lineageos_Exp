@@ -66,13 +66,27 @@ jobs:
 
       - name: Patch 4.9 compat (syscall_fn_t)
         run: |
+          DEF_TYPEDEF="typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);"
+
+          echo "=== [1] 加进 include/linux/syscalls.h ==="
           grep -q "typedef.*syscall_fn_t" include/linux/syscalls.h || {
             echo "" >> include/linux/syscalls.h
-            echo "/* KernelSU backport: syscall_fn_t is 4.17+, add for 4.9 */" >> include/linux/syscalls.h
-            echo "typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);" >> include/linux/syscalls.h
+            echo "$DEF_TYPEDEF" >> include/linux/syscalls.h
           }
-          grep -n "syscall_fn_t" include/linux/syscalls.h
-          echo "=== kernelsu init.c 275-295 (debug) ==="
+          grep -n "syscall_fn_t" include/linux/syscalls.h || true
+
+          echo "=== [2] 直接加进 SukiSU 的 syscall_hook.h（双保险）==="
+          HOOK=drivers/kernelsu/hook/syscall_hook.h
+          if [ -f "$HOOK" ]; then
+            grep -q "typedef.*syscall_fn_t" "$HOOK" || sed -i "1i $DEF_TYPEDEF" "$HOOK"
+            echo "--- hook 头文件前 20 行 ---"
+            head -20 "$HOOK"
+          else
+            echo "!! syscall_hook.h 不存在，列出目录："
+            ls -la drivers/kernelsu/hook/ || true
+          fi
+
+          echo "=== [3] init.c:275-295 内容（排查参数列表错误）==="
           sed -n '275,295p' drivers/kernelsu/core/init.c || true
 
       - name: Remove Werror
