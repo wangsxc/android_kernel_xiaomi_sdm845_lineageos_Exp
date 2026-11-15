@@ -64,6 +64,17 @@ jobs:
           sed -i 's/^CONFIG_CC_STACKPROTECTOR=y/# CONFIG_CC_STACKPROTECTOR is not set/' "$DEF" || true
           grep -E 'CONFIG_KSU|CONFIG_KPROBES' "$DEF" || true
 
+      - name: Patch 4.9 compat (syscall_fn_t)
+        run: |
+          grep -q "typedef.*syscall_fn_t" include/linux/syscalls.h || {
+            echo "" >> include/linux/syscalls.h
+            echo "/* KernelSU backport: syscall_fn_t is 4.17+, add for 4.9 */" >> include/linux/syscalls.h
+            echo "typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);" >> include/linux/syscalls.h
+          }
+          grep -n "syscall_fn_t" include/linux/syscalls.h
+          echo "=== kernelsu init.c 275-295 (debug) ==="
+          sed -n '275,295p' drivers/kernelsu/core/init.c || true
+
       - name: Remove Werror
         run: |
           sed -i 's/-Werror=/-Wno-error=/g' Makefile scripts/Makefile.build
