@@ -89,7 +89,15 @@ jobs:
           ls -la "${CROSS_COMPILE}nm" "${CROSS_COMPILE}gcc"
           make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" ${{ env.DEFCONFIG }}
           grep -E 'CONFIG_KSU=|CONFIG_KPROBES=y' out/.config || true
-          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error -Wno-unknown-warning-option -fcommon" -j$(nproc)
+          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error -Wno-unknown-warning-option -fcommon" -j$(nproc) 2>&1 | tee build.log
+          if [ ! -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            echo "================ BUILD FAILED ================"
+            echo "--- 所有 error 行 ---"
+            grep -n -i "error" build.log | head -40 || true
+            echo "--- 日志尾部 40 行 ---"
+            tail -40 build.log
+            exit 1
+          fi
           ls -lh out/arch/arm64/boot/Image.gz-dtb
 
       - name: Pack AnyKernel3
