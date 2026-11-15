@@ -1,0 +1,64 @@
+name: Build equuleus LOS22 BakaSU
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout kernel
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev python3 cpio zip lz4
+
+      - name: Fetch BakaSU
+        run: |
+          curl -fLSs "https://raw.githubusercontent.com/Baka-SU/BakaSU/main/kernel/setup.sh" | bash
+          echo "--- drivers/kernelsu ---"
+          ls -la drivers/kernelsu/ | head -20
+
+      - name: Toolchain
+        run: |
+          git clone --depth=1 https://github.com/PixelExperience/prebuilts_clang_kernel_linux-x86_clang-r416183b.git clang
+          git clone --depth=1 https://github.com/PixelExperience/prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git gcc-aarch64
+          git clone --depth=1 https://github.com/PixelExperience/prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git gcc-arm
+
+      - name: Build kernel
+        run: |
+          export PATH=$PWD/clang/bin:$PATH
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=$PWD/gcc-aarch64/bin/aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=$PWD/gcc-arm/bin/arm-linux-androideabi-
+
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 \
+            vendor/xiaomi/mi845_defconfig \
+            vendor/xiaomi/extra.config \
+            vendor/xiaomi/equuleus.config
+
+          echo "=== KSU 配置确认 ==="
+          grep -E 'CONFIG_KSU=|CONFIG_KSU_SUSFS=|CONFIG_KSU_MULTI' out/.config || true
+
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 -j$(nproc)
+
+          ls -lh out/arch/arm64/boot/Image.gz-dtb
+
+      - name: Pack AnyKernel3
+        run: |
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git ak3
+          rm -rf ak3/.git
+          cp out/arch/arm64/boot/Image.gz ak3/
+          cp out/arch/arm64/boot/Image.gz-dtb ak3/
+          cp -v tools/AnyKernel3_sh/anykernel.sh ak3/
+          cd ak3 && zip -r9 ../BakaSU-equuleus-LOS22.zip . -x '*.git*'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: BakaSU-equuleus-LOS22
+          path: BakaSU-equuleus-LOS22.zip
+          retention-days: 14
