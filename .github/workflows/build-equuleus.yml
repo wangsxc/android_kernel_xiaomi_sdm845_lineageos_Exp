@@ -66,27 +66,34 @@ jobs:
 
       - name: Patch 4.9 compat (syscall_fn_t)
         run: |
-          DEF_TYPEDEF="typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);"
+          TYPEDEF="typedef asmlinkage long (*syscall_fn_t)(const struct pt_regs *regs);"
 
-          echo "=== [1] 加进 include/linux/syscalls.h ==="
-          grep -q "typedef.*syscall_fn_t" include/linux/syscalls.h || {
+          echo "======== [1] include/linux/syscalls.h ========"
+          if ! grep -q "typedef.*syscall_fn_t" include/linux/syscalls.h; then
             echo "" >> include/linux/syscalls.h
-            echo "$DEF_TYPEDEF" >> include/linux/syscalls.h
-          }
+            echo "/* KernelSU 4.9 backport */" >> include/linux/syscalls.h
+            echo "$TYPEDEF" >> include/linux/syscalls.h
+            echo "appended."
+          else
+            echo "already has it."
+          fi
           grep -n "syscall_fn_t" include/linux/syscalls.h || true
 
-          echo "=== [2] 直接加进 SukiSU 的 syscall_hook.h（双保险）==="
-          HOOK=drivers/kernelsu/hook/syscall_hook.h
-          if [ -f "$HOOK" ]; then
-            grep -q "typedef.*syscall_fn_t" "$HOOK" || sed -i "1i $DEF_TYPEDEF" "$HOOK"
-            echo "--- hook 头文件前 20 行 ---"
-            head -20 "$HOOK"
-          else
-            echo "!! syscall_hook.h 不存在，列出目录："
-            ls -la drivers/kernelsu/hook/ || true
-          fi
+          echo "======== [2] kernelsu/hook/*.h ========"
+          find drivers/kernelsu/hook -name "*.h" -type f | while read HOOK; do
+            if grep -q "syscall_fn_t" "$HOOK" && ! grep -q "typedef.*syscall_fn_t" "$HOOK"; then
+              TMP=$(mktemp)
+              echo "/* 4.9 backport: syscall_fn_t */" > "$TMP"
+              echo "$TYPEDEF" >> "$TMP"
+              cat "$HOOK" >> "$TMP"
+              cp "$TMP" "$HOOK"
+              rm -f "$TMP"
+              echo "[patched] $HOOK"
+              head -6 "$HOOK"
+            fi
+          done
 
-          echo "=== [3] init.c:275-295 内容（排查参数列表错误）==="
+          echo "======== [3] init.c 275-295 ========"
           sed -n '275,295p' drivers/kernelsu/core/init.c || true
 
       - name: Remove Werror
@@ -114,7 +121,7 @@ jobs:
           ls -la "${CROSS_COMPILE}nm" "${CROSS_COMPILE}gcc"
           make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" ${{ env.DEFCONFIG }}
           grep -E 'CONFIG_KSU=|CONFIG_KPROBES=y' out/.config || true
-          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error -Wno-unknown-warning-option -fcommon" -j$(nproc) 2>&1 | tee build.log
+          make O=out ARCH=arm64 CC=clang HOSTCFLAGS="-fcommon" HOSTLDFLAGS="-fcommon" KCFLAGS="-Wno-error -Wno-unknown-warning-option -fcommon -Wno-strict-prototypes -Wno-deprecated-non-prototype -Wno-implicit-function-declaration" -j$(nproc) 2>&1 | tee build.log
           if [ ! -f out/arch/arm64/boot/Image.gz-dtb ]; then
             echo "================ BUILD FAILED ================"
             echo "--- 所有 error 行 ---"
